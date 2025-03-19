@@ -4,6 +4,10 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 import os
 import socket
 from urllib.parse import urlparse
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24))
@@ -11,7 +15,7 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24))
 # Database configuration
 DATABASE_URL = os.environ.get('DATABASE_URL')
 if DATABASE_URL:
-    # Heroku provides DATABASE_URL, but SQLAlchemy needs a different format
+    # Heroku/Render provides DATABASE_URL, but SQLAlchemy needs a different format
     url = urlparse(DATABASE_URL)
     if url.scheme == 'postgres':
         url = url._replace(scheme='postgresql')
@@ -20,10 +24,15 @@ else:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///shopping.db'
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 10,
+    'pool_recycle': 3600,
+    'pool_pre_ping': True
+}
 
 # Initialize SQLAlchemy and SocketIO
 db = SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 class ShoppingList(db.Model):
     id = db.Column(db.Integer, primary_key=True)
