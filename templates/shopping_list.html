@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="card-title mb-4">Shopping List</h2>
+                
+                <!-- Access Key Display -->
+                <div class="alert alert-info">
+                    <strong>Access Key:</strong> {{ access_key }}
+                </div>
+
+                <!-- Add Item Form -->
+                <form method="POST" action="{{ url_for('add_item') }}" class="mb-4">
+                    <div class="input-group">
+                        <input type="text" class="form-control" name="item" placeholder="Add new item..." required>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-plus-circle"></i> Add
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Items List -->
+                <div id="items-container">
+                    <ul class="list-group">
+                        {% for item in items %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" 
+                                       {% if item.is_checked %}checked{% endif %}
+                                       onchange="toggleItem({{ item.id }}, this.checked)">
+                                <label class="form-check-label {% if item.is_checked %}checked-item{% endif %}">
+                                    {{ item.item }}
+                                </label>
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Share Button -->
+<button class="btn btn-primary share-button" onclick="copyShareInfo()">
+    <i class="bi bi-share"></i> Copy Share Info
+</button>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Socket.IO connection
+    const socket = io();
+    
+    // Handle new items
+    socket.on('item_added', function(data) {
+        const itemsContainer = document.getElementById('items-container');
+        const ul = itemsContainer.querySelector('ul');
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex justify-content-between align-items-center';
+        li.innerHTML = `
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" onchange="toggleItem(${data.id}, this.checked)">
+                <label class="form-check-label">${data.item}</label>
+            </div>
+        `;
+        ul.appendChild(li);
+    });
+    
+    // Handle item updates
+    socket.on('item_updated', function(data) {
+        const checkbox = document.querySelector(`input[onchange*="${data.id}"]`);
+        if (checkbox) {
+            checkbox.checked = data.is_checked;
+            const label = checkbox.nextElementSibling;
+            if (data.is_checked) {
+                label.classList.add('checked-item');
+            } else {
+                label.classList.remove('checked-item');
+            }
+        }
+    });
+
+    // Toggle item function
+    function toggleItem(itemId, isChecked) {
+        fetch(`/toggle-item/${itemId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const label = document.querySelector(`input[onchange*="${itemId}"]`).nextElementSibling;
+                    if (isChecked) {
+                        label.classList.add('checked-item');
+                    } else {
+                        label.classList.remove('checked-item');
+                    }
+                }
+            });
+    }
+
+    // Copy share info function
+    function copyShareInfo() {
+        const currentUrl = new URL(window.location.href);
+        const shareUrl = `${currentUrl.origin}${currentUrl.pathname}?key={{ access_key }}`;
+        const shareText = `Shopping List Access Key: {{ access_key }}\nShare URL: ${shareUrl}`;
+        
+        // Create temporary textarea
+        const textarea = document.createElement('textarea');
+        textarea.value = shareText;
+        document.body.appendChild(textarea);
+        
+        // Select and copy text
+        textarea.select();
+        document.execCommand('copy');
+        
+        // Remove temporary textarea
+        document.body.removeChild(textarea);
+        
+        // Show success message
+        const button = document.querySelector('.share-button');
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="bi bi-check-circle"></i> Copied!';
+        setTimeout(() => {
+            button.innerHTML = originalText;
+        }, 2000);
+    }
+</script>
+{% endblock %} 
