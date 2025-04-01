@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO, emit, join_room, leave_room
@@ -5,6 +8,13 @@ import os
 import socket
 from urllib.parse import urlparse
 from dotenv import load_dotenv
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -20,19 +30,32 @@ if DATABASE_URL:
     if url.scheme == 'postgres':
         url = url._replace(scheme='postgresql')
     app.config['SQLALCHEMY_DATABASE_URI'] = url.geturl()
+    logger.info(f"Using PostgreSQL database: {url.geturl()}")
 else:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///shopping.db'
+    logger.info("Using SQLite database")
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_size': 10,
-    'pool_recycle': 3600,
-    'pool_pre_ping': True
+    'pool_size': 1,
+    'max_overflow': 0,
+    'pool_timeout': 30,
+    'pool_recycle': 1800,
+    'pool_pre_ping': True,
+    'pool_use_lifo': True
 }
 
 # Initialize SQLAlchemy and SocketIO
 db = SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet', manage_session=False)
+
+# Add event listener to handle connection cleanup
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    if isinstance(dbapi_connection, str) and dbapi_connection.startswith('sqlite'):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 class ShoppingList(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -46,9 +69,13 @@ class ShoppingItem(db.Model):
     list_id = db.Column(db.Integer, db.ForeignKey('shopping_list.id'), nullable=False)
 
 def init_db():
-    with app.app_context():
-        db.create_all()
-        print("Database initialized successfully")
+    try:
+        with app.app_context():
+            db.create_all()
+            logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {str(e)}")
+        raise
 
 # Initialize the database
 init_db()
@@ -66,14 +93,20 @@ def index():
 @app.route('/create-list', methods=['GET', 'POST'])
 def create_list():
     if request.method == 'POST':
-        access_key = os.urandom(16).hex()
-        new_list = ShoppingList(access_key=access_key)
-        db.session.add(new_list)
-        db.session.commit()
-        
-        session['access_key'] = access_key
-        flash(f'Your shopping list has been created! Share this key with your friends: {access_key}')
-        return redirect(url_for('shopping_list'))
+        try:
+            access_key = os.urandom(16).hex()
+            new_list = ShoppingList(access_key=access_key)
+            db.session.add(new_list)
+            db.session.commit()
+            
+            session['access_key'] = access_key
+            flash(f'Your shopping list has been created! Share this key with your friends: {access_key}')
+            return redirect(url_for('shopping_list'))
+        except Exception as e:
+            logger.error(f"Error creating shopping list: {str(e)}")
+            db.session.rollback()
+            flash('An error occurred while creating your shopping list. Please try again.')
+            return redirect(url_for('create_list'))
     
     return render_template('create_list.html')
 

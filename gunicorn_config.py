@@ -1,6 +1,11 @@
 bind = "0.0.0.0:10000"
-workers = 2
-threads = 2
+workers = 1
+threads = 1
 timeout = 120
 worker_class = "eventlet"
-worker_connections = 1000 
+worker_connections = 1000
+keepalive = 5
+max_requests = 100
+max_requests_jitter = 10
+preload_app = True
+worker_tmp_dir = "/dev/shm" 
