@@ -188,10 +188,23 @@ def toggle_item(item_id):
 
 @app.route('/leave-list')
 def leave_list():
-    if 'access_key' in session:
-        leave_room(session['access_key'])
-    session.pop('access_key', None)
-    return redirect(url_for('index'))
+    try:
+        if 'access_key' in session:
+            try:
+                leave_room(session['access_key'])
+                logger.info(f"Successfully left room: {session['access_key']}")
+            except Exception as e:
+                logger.error(f"Error leaving SocketIO room: {str(e)}")
+                # Continue with session cleanup even if room leave fails
+            finally:
+                session.pop('access_key', None)
+                logger.info("Session access_key removed")
+        return redirect(url_for('index'))
+    except Exception as e:
+        logger.error(f"Error in leave_list route: {str(e)}")
+        # Ensure session is cleaned up even if there's an error
+        session.pop('access_key', None)
+        return redirect(url_for('index'))
 
 @socketio.on('connect')
 def handle_connect():
